@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 tokio = { version = "1.6.1", features = ["full"] }
+config = "0.11.0"
