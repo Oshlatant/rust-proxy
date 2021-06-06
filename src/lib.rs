@@ -11,7 +11,7 @@ pub async fn process(config: HashMap<String, Value>) -> Result<(), Error> {
     let socket = SocketAddr::from_str(&addr).unwrap();
     let listener = TcpListener::bind(socket).await.unwrap();
 
-    println!("Server running on {}", listener.local_addr().unwrap());
+    println!("Server running on {}", addr);
 
     let ip_whitelist = init::get_ip_whitelist(&config);
 
@@ -20,18 +20,21 @@ pub async fn process(config: HashMap<String, Value>) -> Result<(), Error> {
 
         //check if accepted socket ip is inside vector ipwhitelist, if yes -> spawn a task and handle the stream
         if let Ok(socket) = auth_ip(&ip_whitelist, socket) {
-            let task =
-                tokio::spawn(async move { connection::handle_stream(stream, &socket).await });
+            tokio::spawn(async move {
+                connection::handle_stream(stream, &socket).await?;
+
+                Ok::<(), Error>(())
+            });
         }
     }
 }
 
-fn auth_ip(ip_whitelist: &Vec<String>, socket_add: SocketAddr) -> Result<SocketAddr, &str> {
+fn auth_ip(ip_whitelist: &Vec<String>, socket_add: SocketAddr) -> Result<SocketAddr, ()> {
     for ip in ip_whitelist.iter() {
         if ip.to_string() == socket_add.ip().to_string() {
             return Ok(socket_add);
         }
     }
 
-    Err("Ip not allowed")
+    Err(println!("Ip not allowed"))
 }
