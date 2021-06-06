@@ -8,15 +8,14 @@ use tokio::{self, io::Error, net::TcpListener};
 pub async fn process(config: HashMap<String, Value>) -> Result<(), Error> {
     let addr = init::get_caddr(&config);
 
-    let socket = SocketAddr::from_str(&addr).unwrap();
-    let listener = TcpListener::bind(socket).await.unwrap();
-
-    println!("Server running on {}", addr);
-
+    let socket = SocketAddr::from_str(&addr).expect("Incorrect server address, edit Config.toml");
+    let listener = TcpListener::bind(socket).await.expect("Address not free");
     let ip_whitelist = init::get_ip_whitelist(&config);
 
+    println!("Server running on {}", addr);
+    //from this point, panic is not allowed
     loop {
-        let (stream, socket) = listener.accept().await.unwrap();
+        let (stream, socket) = listener.accept().await?;
 
         //check if accepted socket ip is inside vector ipwhitelist, if yes -> spawn a task and handle the stream
         if let Ok(socket) = auth_ip(&ip_whitelist, socket) {

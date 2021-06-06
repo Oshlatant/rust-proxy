@@ -1,12 +1,24 @@
 use config::{Config, File, Value};
-use std::collections::HashMap;
+use core::panic;
+use std::{collections::HashMap, env, fs::OpenOptions, io::{ErrorKind, Write}};
+
 
 pub fn init_config() -> Config {
-    let config_file = File::with_name("./Config.toml");
+    let exe_path = env::current_exe().unwrap();
+    let directory_path =  exe_path.parent().unwrap().to_str();
+    let config_path = format!("{}/Config.toml", directory_path.unwrap());
+
+    println!("config path: {}", config_path);
+
+    check_configfile(&config_path);
+
+    let config_file = File::with_name(&config_path);
     let mut config = Config::default();
     if let Err(e) = config.merge(config_file) {
         panic!("You need to make a Config.toml, error: {}", e);
     }
+
+    println!("config: {:#?}", config);
 
     config
 }
@@ -39,4 +51,29 @@ pub fn get_ip_whitelist(config: &HashMap<String, Value>) -> Vec<String> {
         .iter()
         .map(|e| e.to_string())
         .collect::<Vec<String>>()
+}
+
+pub fn check_configfile(config_path: &str) {
+    let default_config =
+        b"[server]\nip = \"127.0.0.1\"\nport = \"3000\"\nallowed_ip = [\"127.0.0.1\"]\n";
+
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(config_path);
+        
+
+    match file {
+        Ok(mut file) => {
+            file.write_all(default_config)
+            .expect("could not write default config");
+        },
+        Err(e) => {
+            if let ErrorKind::AlreadyExists = e.kind() {
+                return ();
+            } else {
+                panic!("Something went wrong...");
+            }
+        } 
+    }
 }
