@@ -8,8 +8,6 @@ pub fn init_config() -> Config {
     let directory_path =  exe_path.parent().unwrap().to_str();
     let config_path = format!("{}/Config.toml", directory_path.unwrap());
 
-    println!("config path: {}", config_path);
-
     check_configfile(&config_path);
 
     let config_file = File::with_name(&config_path);
@@ -17,8 +15,6 @@ pub fn init_config() -> Config {
     if let Err(e) = config.merge(config_file) {
         panic!("You need to make a Config.toml, error: {}", e);
     }
-
-    println!("config: {:#?}", config);
 
     config
 }
