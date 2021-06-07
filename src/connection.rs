@@ -1,10 +1,10 @@
 use std::{io::ErrorKind, net::SocketAddr};
 use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt, Error},
-    net::TcpStream,
+    net::{lookup_host, TcpStream},
 };
 
-//side effect
+//handle most i/o from streams, get some datas from first request to determine if it need to setup a https_tunnel ( CONNECT ), else just tunnel the data
 pub async fn handle_stream(mut stream: TcpStream, socket_addr: &SocketAddr) -> Result<(), Error> {
     println!("\n[*] New connection -");
     println!("[*] Socket: {} -", socket_addr);
@@ -12,7 +12,7 @@ pub async fn handle_stream(mut stream: TcpStream, socket_addr: &SocketAddr) -> R
     let mut req = [0; 4096];
     stream.peek(&mut req).await?;
 
-    let (method, host) = match no_seffect::get_method_host(&req) {
+    let (method, host) = match get_method_host(&req) {
         Some(headers) => headers,
         None => {
             //bad request
@@ -30,7 +30,7 @@ pub async fn handle_stream(mut stream: TcpStream, socket_addr: &SocketAddr) -> R
         // empty the stream, needed because i only peeked to it just before
         stream.read(&mut req).await?;
 
-        let tunnel = match no_seffect::https_tunnel(&host).await {
+        let tunnel = match https_tunnel(&host).await {
             Ok(tunnel) => {
                 let res = b"HTTP/1.1 200 Connection established\r\n\r\n";
                 stream.write_all(res).await?;
@@ -50,7 +50,7 @@ pub async fn handle_stream(mut stream: TcpStream, socket_addr: &SocketAddr) -> R
 
         transfer(stream, tunnel).await?;
     } else {
-        let tunnel = no_seffect::tunnel(&host).await?;
+        let tunnel = tunnel(&host).await?;
 
         transfer(stream, tunnel).await?;
     }
@@ -58,7 +58,8 @@ pub async fn handle_stream(mut stream: TcpStream, socket_addr: &SocketAddr) -> R
     Ok(())
 }
 
-//side effect
+
+//function from tokio/example, cleanest possible, magic copy data between both stream
 async fn transfer(mut inbound: TcpStream, mut outbound: TcpStream) -> Result<(), Error> {
     let (mut ri, mut wi) = inbound.split();
     let (mut ro, mut wo) = outbound.split();
@@ -78,61 +79,50 @@ async fn transfer(mut inbound: TcpStream, mut outbound: TcpStream) -> Result<(),
     Ok(())
 }
 
-pub(super) mod no_seffect {
-
-    use std::io::ErrorKind;
-    use tokio::{
-        io::Error,
-        net::{lookup_host, TcpStream},
+//setup a tunnel with the requested host, seems to be https 
+async fn https_tunnel(host: &str) -> Result<TcpStream, Error> {
+    let addr = match lookup_host(host).await?.next() {
+        Some(addr) => addr,
+        None => {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "[X] Invalid host, closing socket -",
+            ))
+        }
     };
 
-    //function from tokio/example, cleanest possible
-    //99% no side effect
-    pub async fn https_tunnel(host: &str) -> Result<TcpStream, Error> {
-        let addr = match lookup_host(host).await?.next() {
-            Some(addr) => addr,
-            None => {
-                return Err(Error::new(
-                    ErrorKind::InvalidInput,
-                    "[X] Invalid host, closing socket -",
-                ))
-            }
-        };
+    let tunnel = TcpStream::connect(addr).await?;
+    println!("[*] Tunnel open to: {} ( {} ) -", addr, host);
 
-        let tunnel = TcpStream::connect(addr).await?;
-        println!("[*] Tunnel open to: {} ( {} ) -", addr, host);
+    Ok(tunnel)
+}
 
-        Ok(tunnel)
-    }
+//same but format the host to get it working with lookup_host(), seems to be http
+async fn tunnel(host: &str) -> Result<TcpStream, Error> {
+    let host = format!("{}:80", host);
 
-    //99% no side effect
-    pub async fn tunnel(host: &str) -> Result<TcpStream, Error> {
-        let host = format!("{}:80", host);
+    let addr = match lookup_host(&host).await?.next() {
+        Some(addr) => addr,
+        None => {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "[X] Invalid host, closing socket -",
+            ))
+        }
+    };
 
-        let addr = match lookup_host(&host).await?.next() {
-            Some(addr) => addr,
-            None => {
-                return Err(Error::new(
-                    ErrorKind::InvalidInput,
-                    "[X] Invalid host, closing socket -",
-                ))
-            }
-        };
+    let tunnel = TcpStream::connect(addr).await?;
+    println!("[*] Tunnel open to: {} ( {} ) -", addr, host);
 
-        let tunnel = TcpStream::connect(addr).await?;
-        println!("[*] Tunnel open to: {} ( {} ) -", addr, host);
+    Ok(tunnel)
+}
 
-        Ok(tunnel)
-    }
+fn get_method_host(req: &[u8]) -> Option<(String, String)> {
+    let req = String::from_utf8_lossy(req);
+    let req = req.split_whitespace().collect::<Vec<&str>>();
 
-    //no side effect
-    pub fn get_method_host(req: &[u8]) -> Option<(String, String)> {
-        let req = String::from_utf8_lossy(req);
-        let req = req.split_whitespace().collect::<Vec<&str>>();
+    let method = req.get(0)?.to_string();
+    let host = req.get(4)?.to_string();
 
-        let method = req.get(0)?.to_string();
-        let host = req.get(4)?.to_string();
-
-        Some((method, host))
-    }
+    Some((method, host))
 }
